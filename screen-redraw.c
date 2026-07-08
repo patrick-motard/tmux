@@ -532,7 +532,18 @@ screen_redraw_draw_pane_status(struct screen_redraw_ctx *ctx)
 		s = &wp->status_screen;
 
 		size = wp->status_size;
-		if (ctx->pane_status == PANE_STATUS_TOP)
+		if (window_pane_box_mode(wp)) {
+			/*
+			 * Box mode reserves the pane's own first and last rows
+			 * for the box border, so render the status onto the box
+			 * border row itself rather than the inter-pane
+			 * separator row (which box mode leaves blank).
+			 */
+			if (ctx->pane_status == PANE_STATUS_TOP)
+				yoff = wp->yoff;
+			else
+				yoff = wp->yoff + wp->sy - 1;
+		} else if (ctx->pane_status == PANE_STATUS_TOP)
 			yoff = wp->yoff - 1;
 		else
 			yoff = wp->yoff + wp->sy;
@@ -666,9 +677,9 @@ screen_redraw_screen(struct client *c)
 	if (flags & (CLIENT_REDRAWWINDOW|CLIENT_REDRAWBORDERS)) {
 		log_debug("%s: redrawing borders", c->name);
 		screen_redraw_draw_borders(&ctx);
+		screen_redraw_draw_active_box(&ctx);
 		if (ctx.pane_status != PANE_STATUS_OFF)
 			screen_redraw_draw_pane_status(&ctx);
-		screen_redraw_draw_active_box(&ctx);
 		screen_redraw_draw_pane_scrollbars(&ctx);
 	}
 	if (flags & CLIENT_REDRAWWINDOW) {
@@ -892,23 +903,52 @@ screen_redraw_draw_borders(struct screen_redraw_ctx *ctx)
 	struct session		*s = c->session;
 	struct window		*w = s->curw->window;
 	struct options		*oo = w->options;
+	struct tty		*tty = &c->tty;
 	struct window_pane	*wp;
-	u_int			 i, j;
-	int			 bi;
+	struct grid_cell	 blank_gc;
+	u_int			 i, j, x, y;
+	int			 bi, box_mode;
 
 	log_debug("%s: %s @%u", __func__, c->name, w->id);
 
-	/*
-	 * Skip drawing pane separator borders when box mode is active,
-	 * since each pane has its own complete box border.
-	 */
 	bi = options_get_number(oo, "pane-border-indicators");
-	if ((bi == PANE_BORDER_BOX || bi == PANE_BORDER_BOX_ALL) &&
-	    TAILQ_NEXT(TAILQ_FIRST(&w->panes), entry) != NULL)
-		return;
+	box_mode = (bi == PANE_BORDER_BOX || bi == PANE_BORDER_BOX_ALL) &&
+	    TAILQ_NEXT(TAILQ_FIRST(&w->panes), entry) != NULL;
 
 	TAILQ_FOREACH(wp, &w->panes, entry)
 		wp->border_gc_set = 0;
+
+	if (box_mode) {
+		/*
+		 * In box mode each pane draws its own complete box border
+		 * (see screen_redraw_draw_active_box), so the normal pane
+		 * separator borders are not drawn here. The inter-pane gap
+		 * cells must still be blanked every redraw, otherwise stale
+		 * border glyphs from a previous layout (for example the old
+		 * top-left corner after a resize) are never cleared. Blank
+		 * every cell that is not inside a pane; the box borders are
+		 * painted afterwards by screen_redraw_draw_active_box.
+		 */
+		memcpy(&blank_gc, &grid_default_cell, sizeof blank_gc);
+		utf8_set(&blank_gc.data, ' ');
+		for (j = 0; j < c->tty.sy - ctx->statuslines; j++) {
+			for (i = 0; i < c->tty.sx; i++) {
+				x = ctx->ox + i;
+				y = ctx->oy + j;
+				if (screen_redraw_check_cell(ctx, x, y,
+				    &wp) == CELL_INSIDE)
+					continue;
+				if (ctx->statustop)
+					tty_cursor(tty, i,
+					    ctx->statuslines + j);
+				else
+					tty_cursor(tty, i, j);
+				tty_cell(tty, &blank_gc, &grid_default_cell,
+				    NULL, NULL);
+			}
+		}
+		return;
+	}
 
 	for (j = 0; j < c->tty.sy - ctx->statuslines; j++) {
 		for (i = 0; i < c->tty.sx; i++)
@@ -1211,7 +1251,16 @@ screen_redraw_draw_pane(struct screen_redraw_ctx *ctx, struct window_pane *wp)
 		top = ctx->statuslines;
 	else
 		top = 0;
-	for (j = 0; j < (box_mode ? wp->sy - 2 : wp->sy); j++) {
+	/*
+	 * Bound the loop by the actual grid height of the screen being
+	 * drawn. In box mode the screen grid is sized to sy - 2 and in
+	 * normal mode to sy, so screen_size_y(s) matches the steady-state
+	 * behaviour. During the box -> non-box transition on pane close the
+	 * grid can briefly be smaller than wp->sy; using screen_size_y(s)
+	 * keeps the source line index in bounds and avoids over-reading the
+	 * grid (heap-buffer-overflow in grid_get_line).
+	 */
+	for (j = 0; j < screen_size_y(s); j++) {
 		if (wp->yoff + j < ctx->oy || wp->yoff + j >= ctx->oy + ctx->sy)
 			continue;
 
