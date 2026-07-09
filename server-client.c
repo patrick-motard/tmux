@@ -1997,6 +1997,7 @@ server_client_reset_state(struct client *c)
 	struct options		*oo = c->session->options;
 	int			 mode = 0, cursor, flags, pane_mode = 0;
 	u_int			 cx = 0, cy = 0, ox, oy, sx, sy, prompt = 0;
+	u_int			 pxoff, pyoff;
 	u_int			 sb_w;
 	struct visible_ranges	*r;
 
@@ -2037,14 +2038,23 @@ server_client_reset_state(struct client *c)
 			pane_mode = wp->base.mode;
 
 			tty_window_offset(tty, &ox, &oy, &sx, &sy);
-			if (wp->xoff + (int)s->cx >= (int)ox &&
-			    wp->xoff + (int)s->cx <= (int)ox + (int)sx &&
-			    wp->yoff + (int)s->cy >= (int)oy &&
-			    wp->yoff + (int)s->cy <= (int)oy + (int)sy) {
+
+			/* Account for box mode offset. */
+			pxoff = wp->xoff;
+			pyoff = wp->yoff;
+			if (window_pane_box_mode(wp)) {
+				pxoff += 1;
+				pyoff += 1;
+			}
+
+			if (pxoff + (int)s->cx >= (int)ox &&
+			    pxoff + (int)s->cx <= (int)ox + (int)sx &&
+			    pyoff + (int)s->cy >= (int)oy &&
+			    pyoff + (int)s->cy <= (int)oy + (int)sy) {
 				cursor = 1;
 
-				cx = wp->xoff + (int)s->cx - (int)ox;
-				cy = wp->yoff + (int)s->cy - (int)oy;
+				cx = pxoff + (int)s->cx - (int)ox;
+				cy = pyoff + (int)s->cy - (int)oy;
 
 				r = window_visible_ranges(wp, cx, cy, 1, NULL);
 				if (!window_position_is_visible(r, cx))
