@@ -749,6 +749,13 @@ server_client_check_mouse_in_pane(struct window_pane *wp, int px, int py,
 		    py == wp->yoff + (int)wp->sy)) {
 			/* Floating pane left, bottom or top border. */
 			return (KEYC_MOUSE_LOCATION_BORDER);
+		} else if (window_pane_box_mode(wp) &&
+		    (px == wp->xoff ||
+		    px == wp->xoff + (int)wp->sx - 1 ||
+		    py == wp->yoff ||
+		    py == wp->yoff + (int)wp->sy - 1)) {
+			/* Box mode pane border (on the pane's own edge). */
+			return (KEYC_MOUSE_LOCATION_BORDER);
 		} else {
 			/* Must be inside the pane. */
 			return (KEYC_MOUSE_LOCATION_PANE);
@@ -799,20 +806,6 @@ server_client_check_mouse_in_pane(struct window_pane *wp, int px, int py,
 		}
 		if (fwp != NULL)
 			return (KEYC_MOUSE_LOCATION_BORDER);
-	}
-
-	/* In box mode, check if the click is on this pane's border. */
-	if (window_pane_box_mode(wp)) {
-		if (py >= wp->yoff &&
-		    py <= wp->yoff + (int)wp->sy - 1 &&
-		    px >= wp->xoff &&
-		    px <= wp->xoff + (int)wp->sx - 1) {
-			if (py == wp->yoff ||
-			    py == wp->yoff + (int)wp->sy - 1 ||
-			    px == wp->xoff ||
-			    px == wp->xoff + (int)wp->sx - 1)
-				return (KEYC_MOUSE_LOCATION_BORDER);
-		}
 	}
 
 	return (KEYC_MOUSE_LOCATION_NOWHERE);

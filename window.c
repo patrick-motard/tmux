@@ -733,9 +733,9 @@ window_get_active_at(struct window *w, u_int x, u_int y)
 			 * edge (used for resize dragging) resolve to a pane.
 			 */
 			if ((int)x >= wp->xoff &&
-			    (int)x <= wp->xoff + (int)wp->sx &&
+			    (int)x <= wp->xoff + (int)wp->sx - 1 &&
 			    (int)y >= wp->yoff &&
-			    (int)y <= wp->yoff + (int)wp->sy)
+			    (int)y <= wp->yoff + (int)wp->sy - 1)
 				return (wp);
 			continue;
 		}
