@@ -169,6 +169,13 @@ screen_write_set_client_cb(struct tty_ctx *ttyctx, struct client *c)
 	ttyctx->xoff = ttyctx->rxoff = wp->xoff;
 	ttyctx->yoff = ttyctx->ryoff = wp->yoff;
 
+	if (window_pane_box_mode(wp)) {
+		ttyctx->xoff++;
+		ttyctx->rxoff++;
+		ttyctx->yoff++;
+		ttyctx->ryoff++;
+	}
+
 	if (status_at_line(c) == 0)
 		ttyctx->yoff += status_line_size(c);
 
