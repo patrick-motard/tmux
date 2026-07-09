@@ -440,6 +440,38 @@ redraw_mark_pane_inside(struct redraw_build_ctx *bctx, struct window_pane *wp)
 	}
 }
 
+/*
+ * Mark pane inside data for a box-mode pane. The content grid is sized to
+ * sx-2 x sy-2 (window_pane_resize) so content is inset by one cell inside the
+ * box border and grid indices stay in bounds.
+ */
+static void
+redraw_mark_pane_inside_box(struct redraw_build_ctx *bctx,
+    struct window_pane *wp)
+{
+	struct redraw_build_cell	*bc;
+	struct screen			*s = wp->screen;
+	u_int				 px, py, gx, gy, x, y;
+	int				 wx, wy;
+
+	gx = screen_size_x(s);
+	gy = screen_size_y(s);
+	for (py = 0; py < gy; py++) {
+		for (px = 0; px < gx; px++) {
+			wx = wp->xoff + 1 + (int)px;
+			wy = wp->yoff + 1 + (int)py;
+			if (!redraw_window_to_scene(bctx, wx, wy, &x, &y))
+				continue;
+			bc = redraw_get_build_cell(bctx, x, y);
+			memset(bc, 0, sizeof *bc);
+			bc->data.type = REDRAW_SPAN_PANE;
+			bc->data.p.wp = wp;
+			bc->data.p.px = px;
+			bc->data.p.py = py;
+		}
+	}
+}
+
 /* Mark scrollbar data. */
 static void
 redraw_mark_pane_scrollbar(struct redraw_build_ctx *bctx,
@@ -657,6 +689,88 @@ redraw_mark_border_arrows(struct redraw_build_ctx *bctx, struct window_pane *wp,
 	}
 }
 
+/*
+ * Mark one box-border cell on a pane's own edge. Unlike the tiled-separator
+ * marker (redraw_mark_border_cell), a box border belongs entirely to one pane
+ * and sits on that pane's own perimeter, so ownership is set directly.
+ */
+static void
+redraw_mark_pane_box_border_cell(struct redraw_build_ctx *bctx,
+    struct window_pane *wp, int wx, int wy, int mask, enum pane_lines lines)
+{
+	struct redraw_build_cell	*bc;
+	u_int				 x, y;
+
+	if (!redraw_window_to_scene(bctx, wx, wy, &x, &y))
+		return;
+	bc = redraw_get_build_cell(bctx, x, y);
+
+	memset(bc, 0, sizeof *bc);
+	bc->data.type = REDRAW_SPAN_BORDER;
+	bc->data.b.top_wp = wp;
+	bc->data.b.bottom_wp = wp;
+	bc->data.b.left_wp = wp;
+	bc->data.b.right_wp = wp;
+	bc->data.b.top_lines = lines;
+	bc->data.b.bottom_lines = lines;
+	bc->data.b.left_lines = lines;
+	bc->data.b.right_lines = lines;
+	bc->data.b.cell_mask = mask;
+	bc->data.b.cell_type = redraw_get_cell_type(mask);
+	bc->data.b.style_wp = wp;
+}
+
+/*
+ * Mark the full box border around one pane on its own edges. In box mode the
+ * box occupies the pane's outer row/column and content is inset by one (see
+ * redraw_mark_pane_inside_box). In "box" mode only the active pane's box is
+ * marked; other panes' perimeter cells are left empty and blank automatically.
+ */
+static void
+redraw_mark_pane_box_borders(struct redraw_build_ctx *bctx,
+    struct window_pane *wp)
+{
+	enum pane_lines		 lines = window_pane_get_pane_lines(wp);
+	struct window_pane	*active = server_client_get_pane(bctx->c);
+	int			 left, right, top, bottom, wx, wy, mask;
+
+	if (bctx->ind == PANE_BORDER_BOX && wp != active)
+		return;
+
+	left = wp->xoff;
+	right = wp->xoff + (int)wp->sx - 1;
+	top = wp->yoff;
+	bottom = wp->yoff + (int)wp->sy - 1;
+
+	/* Corners. */
+	redraw_mark_pane_box_border_cell(bctx, wp, left, top,
+	    REDRAW_BORDER_R|REDRAW_BORDER_D, lines);
+	redraw_mark_pane_box_border_cell(bctx, wp, right, top,
+	    REDRAW_BORDER_L|REDRAW_BORDER_D, lines);
+	redraw_mark_pane_box_border_cell(bctx, wp, left, bottom,
+	    REDRAW_BORDER_R|REDRAW_BORDER_U, lines);
+	redraw_mark_pane_box_border_cell(bctx, wp, right, bottom,
+	    REDRAW_BORDER_L|REDRAW_BORDER_U, lines);
+
+	/* Top and bottom edges (excluding corners). */
+	mask = REDRAW_BORDER_L|REDRAW_BORDER_R;
+	for (wx = left + 1; wx < right; wx++) {
+		redraw_mark_pane_box_border_cell(bctx, wp, wx, top, mask,
+		    lines);
+		redraw_mark_pane_box_border_cell(bctx, wp, wx, bottom, mask,
+		    lines);
+	}
+
+	/* Left and right edges (excluding corners). */
+	mask = REDRAW_BORDER_U|REDRAW_BORDER_D;
+	for (wy = top + 1; wy < bottom; wy++) {
+		redraw_mark_pane_box_border_cell(bctx, wp, left, wy, mask,
+		    lines);
+		redraw_mark_pane_box_border_cell(bctx, wp, right, wy, mask,
+		    lines);
+	}
+}
+
 /* Mark pane borders. */
 static void
 redraw_mark_pane_borders(struct redraw_build_ctx *bctx, struct window_pane *wp,
@@ -780,8 +894,13 @@ redraw_mark_pane(struct redraw_build_ctx *bctx, struct window_pane *wp)
 	if (sb_w != 0 && bctx->w->sb_pos == PANE_SCROLLBARS_LEFT)
 		sb_left = 1;
 
-	redraw_mark_pane_inside(bctx, wp);
-	redraw_mark_pane_borders(bctx, wp, overlay ? 0 : sb_w, sb_left);
+	if (window_pane_box_mode(wp)) {
+		redraw_mark_pane_inside_box(bctx, wp);
+		redraw_mark_pane_box_borders(bctx, wp);
+	} else {
+		redraw_mark_pane_inside(bctx, wp);
+		redraw_mark_pane_borders(bctx, wp, overlay ? 0 : sb_w, sb_left);
+	}
 	redraw_mark_pane_scrollbar(bctx, wp, sb_w, sb_left, overlay);
 }
 
