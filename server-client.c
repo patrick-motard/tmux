@@ -804,13 +804,13 @@ server_client_check_mouse_in_pane(struct window_pane *wp, int px, int py,
 	/* In box mode, check if the click is on this pane's border. */
 	if (window_pane_box_mode(wp)) {
 		if (py >= wp->yoff &&
-		    py <= wp->yoff + wp->sy - 1 &&
+		    py <= wp->yoff + (int)wp->sy - 1 &&
 		    px >= wp->xoff &&
-		    px <= wp->xoff + wp->sx - 1) {
+		    px <= wp->xoff + (int)wp->sx - 1) {
 			if (py == wp->yoff ||
-			    py == wp->yoff + wp->sy - 1 ||
+			    py == wp->yoff + (int)wp->sy - 1 ||
 			    px == wp->xoff ||
-			    px == wp->xoff + wp->sx - 1)
+			    px == wp->xoff + (int)wp->sx - 1)
 				return (KEYC_MOUSE_LOCATION_BORDER);
 		}
 	}
@@ -2012,7 +2012,7 @@ server_client_reset_state(struct client *c)
 	struct options		*oo = c->session->options;
 	int			 mode = 0, cursor, flags, pane_mode = 0;
 	u_int			 cx = 0, cy = 0, ox, oy, sx, sy, prompt = 0;
-	u_int			 pxoff, pyoff;
+	int			 pxoff, pyoff;
 	u_int			 sb_w;
 	struct visible_ranges	*r;
 

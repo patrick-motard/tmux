@@ -732,8 +732,10 @@ window_get_active_at(struct window *w, u_int x, u_int y)
 			 * Include the box border area so clicks on the box
 			 * edge (used for resize dragging) resolve to a pane.
 			 */
-			if (x >= wp->xoff && x <= wp->xoff + wp->sx &&
-			    y >= wp->yoff && y <= wp->yoff + wp->sy)
+			if ((int)x >= wp->xoff &&
+			    (int)x <= wp->xoff + (int)wp->sx &&
+			    (int)y >= wp->yoff &&
+			    (int)y <= wp->yoff + (int)wp->sy)
 				return (wp);
 			continue;
 		}
