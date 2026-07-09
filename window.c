@@ -727,6 +727,16 @@ window_get_active_at(struct window *w, u_int x, u_int y)
 	TAILQ_FOREACH(wp, &w->z_index, zentry) {
 		if (!window_pane_is_visible(wp))
 			continue;
+		if (window_pane_box_mode(wp)) {
+			/*
+			 * Include the box border area so clicks on the box
+			 * edge (used for resize dragging) resolve to a pane.
+			 */
+			if (x >= wp->xoff && x <= wp->xoff + wp->sx &&
+			    y >= wp->yoff && y <= wp->yoff + wp->sy)
+				return (wp);
+			continue;
+		}
 		window_pane_full_size_offset(wp, &xoff, &yoff, &sx, &sy);
 		if (!window_pane_is_floating(wp)) {
 			/*
