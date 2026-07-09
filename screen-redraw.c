@@ -644,6 +644,47 @@ redraw_mark_border_status(struct redraw_build_ctx *bctx, struct window_pane *wp,
 	}
 }
 
+/*
+ * Mark pane-status cells for a box-mode pane. The status is rendered onto the
+ * box's own top or bottom border row (not the inter-pane separator row, which
+ * box mode does not use).
+ */
+static void
+redraw_mark_border_status_box(struct redraw_build_ctx *bctx,
+    struct window_pane *wp)
+{
+	struct redraw_build_cell	*bc;
+	u_int				 x, y, off = 0;
+	int				 pane_status, wy, sx, ex, wx, cell_type;
+
+	pane_status = window_pane_get_pane_status(wp);
+	if (pane_status == PANE_STATUS_OFF)
+		return;
+	if (pane_status == PANE_STATUS_TOP)
+		wy = wp->yoff;
+	else
+		wy = wp->yoff + (int)wp->sy - 1;
+
+	sx = wp->xoff + 2;
+	ex = wp->xoff + (int)wp->sx - 2;
+	if (sx > ex)
+		return;
+
+	for (wx = sx; wx <= ex; wx++, off++) {
+		if (!redraw_window_to_scene(bctx, wx, wy, &x, &y))
+			continue;
+		bc = redraw_get_build_cell(bctx, x, y);
+		if (bc->data.type != REDRAW_SPAN_BORDER)
+			continue;
+		cell_type = bc->data.b.cell_type;
+
+		bc->data.type = REDRAW_SPAN_STATUS;
+		bc->data.st.wp = wp;
+		bc->data.st.offset = off;
+		bc->data.st.cell_type = cell_type;
+	}
+}
+
 /* Mark existing border cells where indicator arrows will be drawn. */
 static void
 redraw_mark_border_arrows(struct redraw_build_ctx *bctx, struct window_pane *wp,
@@ -769,6 +810,8 @@ redraw_mark_pane_box_borders(struct redraw_build_ctx *bctx,
 		redraw_mark_pane_box_border_cell(bctx, wp, right, wy, mask,
 		    lines);
 	}
+
+	redraw_mark_border_status_box(bctx, wp);
 }
 
 /* Mark pane borders. */
@@ -1576,10 +1619,19 @@ redraw_pane_status_line(struct redraw_draw_ctx *dctx,
 	if (pane_status == PANE_STATUS_OFF)
 		return (0);
 
-	if (pane_status == PANE_STATUS_TOP)
-		wy = (int)wp->yoff - 1;
-	else
-		wy = (int)wp->yoff + wp->sy;
+	if (window_pane_box_mode(wp)) {
+		/* In box mode, status is on the box border itself. */
+		if (pane_status == PANE_STATUS_TOP)
+			wy = (int)wp->yoff;
+		else
+			wy = (int)wp->yoff + (int)wp->sy - 1;
+	} else {
+		/* Non-box mode: status is on the separator row. */
+		if (pane_status == PANE_STATUS_TOP)
+			wy = (int)wp->yoff - 1;
+		else
+			wy = (int)wp->yoff + wp->sy;
+	}
 	if (wy < 0 || wy < (int)scene->oy)
 		return (0);
 	if ((u_int)wy >= scene->oy + scene->sy)
