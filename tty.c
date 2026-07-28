@@ -1547,6 +1547,10 @@ tty_set_client_cb(struct tty_ctx *ttyctx, struct client *c)
 		ttyctx->flags &= ~TTY_CTX_WINDOW_BIGGER;
 
 	ttyctx->yoff = ttyctx->ryoff = wp->yoff;
+	if (window_pane_box_mode(wp)) {
+		ttyctx->yoff++;
+		ttyctx->ryoff++;
+	}
 	if (status_at_line(c) == 0)
 		ttyctx->yoff += status_line_size(c);
 
